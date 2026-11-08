@@ -1,0 +1,12 @@
+{
+	auto_https off
+	admin off
+}
+:{$PORT} {
+	handle /in2 {
+		reverse_proxy 127.0.0.1:10000
+	}
+	handle {
+		reverse_proxy 127.0.0.1:8000
+	}
+}
