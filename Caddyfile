@@ -6,6 +6,15 @@
 	handle /in2 {
 		reverse_proxy 127.0.0.1:10000
 	}
+	handle /vl {
+		reverse_proxy 127.0.0.1:10001
+	}
+	handle /tr {
+		reverse_proxy 127.0.0.1:10002
+	}
+	handle /hu {
+		reverse_proxy 127.0.0.1:10003
+	}
 	handle {
 		reverse_proxy 127.0.0.1:8000
 	}
