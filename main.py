@@ -7,7 +7,7 @@ from pydantic import BaseModel
 ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 # >>>>>>>>>> دامنه ریلوی خودتو اینجا بذار (بدون https://) <<<<<<<<<<
-RAILWAY_DOMAIN = "YOUR-DOMAIN.up.railway.app"
+RAILWAY_DOMAIN = "confamir.up.railway.app"
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 DOMAIN = os.environ.get("DOMAIN") or RAILWAY_DOMAIN
 WS_PATH = os.environ.get("WS_PATH", "/in2")
