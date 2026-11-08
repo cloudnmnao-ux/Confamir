@@ -4,8 +4,7 @@ from fastapi import FastAPI, Depends, HTTPException, Response, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
-ADMIN_USER = (os.environ.get("ADMIN_USER") or "amirali").strip()
-# رمز پنل: بهتره در Railway ← Variables با اسم ADMIN_PASSWORD بذاری؛ اگه نبود از این مقدار استفاده می‌شه
+ADMIN_USER = "admin"
 ADMIN_PASSWORD = "99842222"
 # >>>>>>>>>> دامنه ریلوی خودتو اینجا بذار (بدون https://) <<<<<<<<<<
 RAILWAY_DOMAIN = "confamir.up.railway.app"
