@@ -122,7 +122,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--a);outline-offse
 <script>
 const $=id=>document.getElementById(id);
 const api=async(m,u,b)=>{const r=await fetch(u,{method:m,headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined});
- if(r.status===401){location='/login';throw 0}return r.json()};
+ if(r.status===401){document.body.innerHTML='<p style="padding:40px">دسترسی نداری؛ لینک ورودت رو دوباره باز کن.</p>';throw 0}return r.json()};
 const GB=1073741824,fb=x=>x>=GB?(x/GB).toFixed(2)+' GB':(x/1048576).toFixed(1)+' MB';
 const COLORS=['#7c5cff','#3b82f6','#06b6d4','#10b981','#f59e0b','#ef4444','#ec4899','#a855f7'];
 let users=[],S={},filt='all',editId=null,qs='',qv='';
