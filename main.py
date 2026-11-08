@@ -9,7 +9,7 @@ ACCESS_KEY = (os.environ.get("ACCESS_KEY") or "change-me-to-a-long-random-key").
 # True = با باز کردن خود دامنه مستقیم وارد پنل می‌شی (بدون هیچ رمزی) | False = فقط با لینک /enter/کلید
 OPEN_ACCESS = True
 # >>>>>>>>>> دامنه ریلوی خودتو اینجا بذار (بدون https://) <<<<<<<<<<
-RAILWAY_DOMAIN = "YOUR-DOMAIN.up.railway.app"
+RAILWAY_DOMAIN = "confamir.up.railway.app"
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 DOMAIN = os.environ.get("DOMAIN") or RAILWAY_DOMAIN
 WS_PATH = os.environ.get("WS_PATH", "/in2")
