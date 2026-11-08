@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 ADMIN_USER = (os.environ.get("ADMIN_USER") or "amirali1391").strip()
 # رمز پنل: بهتره در Railway ← Variables با اسم ADMIN_PASSWORD بذاری؛ اگه نبود از این مقدار استفاده می‌شه
-ADMIN_PASSWORD = (os.environ.get("ADMIN_PASSWORD") or "99842222").strip()
+ADMIN_PASSWORD = "99842222"
 # >>>>>>>>>> دامنه ریلوی خودتو اینجا بذار (بدون https://) <<<<<<<<<<
 RAILWAY_DOMAIN = "confamir.up.railway.app"
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
