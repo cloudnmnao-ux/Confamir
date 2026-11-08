@@ -1,4 +1,5 @@
-import os, json, time, uuid, secrets, base64, sqlite3, subprocess, threading, hmac, hashlib, urllib.parse
+import os, json, time, uuid, secrets, base64, sqlite3, subprocess, threading, hmac, hashlib, urllib.parse, socket, ssl, ipaddress, random, re, urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, Response, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -9,7 +10,7 @@ ADMIN_USER = (os.environ.get("ADMIN_USER") or "admin").strip()
 ADMIN_PASSWORD = (os.environ.get("ADMIN_PASSWORD") or "99842222").strip()
 print(f"[panel] user={ADMIN_USER!r} password_length={len(ADMIN_PASSWORD)} source={'railway-variable' if os.environ.get('ADMIN_PASSWORD') else 'code'}", flush=True)
 # >>>>>>>>>> دامنه ریلوی خودتو اینجا بذار (بدون https://) <<<<<<<<<<
-RAILWAY_DOMAIN = "confamir.up.railway.app"
+RAILWAY_DOMAIN = "YOUR-DOMAIN.up.railway.app"
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 DOMAIN = os.environ.get("DOMAIN") or RAILWAY_DOMAIN
 # آدرس اتصال پیش‌فرض: اگه برای کاربر یا در تنظیمات آدرسی مشخص نشده باشه، کانفیگ‌ها به این آدرس وصل می‌شن
@@ -24,6 +25,8 @@ os.makedirs(DATA, exist_ok=True)
 L = threading.RLock()
 db = sqlite3.connect(os.path.join(DATA, "panel.db"), check_same_thread=False)
 db.row_factory = sqlite3.Row
+db.execute("PRAGMA journal_mode=WAL")
+db.execute("PRAGMA synchronous=NORMAL")
 db.execute("""CREATE TABLE IF NOT EXISTS users(
  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, uuid TEXT, token TEXT,
  limit_bytes INTEGER DEFAULT 0, expire INTEGER DEFAULT 0,
@@ -46,7 +49,7 @@ DEFAULTS = {"title": "Black Panel", "accent": "#7c5cff", "theme": "dark", "radiu
 def settings():
     with L:
         d = dict(DEFAULTS)
-        d.update({r["k"]: r["v"] for r in db.execute("SELECT * FROM settings")})
+        d.update({r["k"]: r["v"] for r in db.execute("SELECT * FROM settings") if not r["k"].startswith("_")})
     return d
 
 app = FastAPI()
@@ -103,12 +106,13 @@ def write_config(users):
         inbounds.append({"tag": tag, "listen": "127.0.0.1", "port": port, "protocol": proto,
                          "settings": st, "streamSettings": ss})
     cfg = {
-        "log": {"loglevel": "warning"},
+        "log": {"loglevel": "error"},
+        "dns": {"servers": ["1.1.1.1", "8.8.8.8", "localhost"], "queryStrategy": "UseIPv4"},
         "api": {"tag": "api", "services": ["HandlerService", "StatsService"]},
         "stats": {},
-        "policy": {"levels": {"0": {"statsUserUplink": True, "statsUserDownlink": True}}},
+        "policy": {"levels": {"0": {"statsUserUplink": True, "statsUserDownlink": True, "bufferSize": 128}}},
         "inbounds": inbounds,
-        "outbounds": [{"protocol": "freedom", "tag": "direct"}],
+        "outbounds": [{"protocol": "freedom", "tag": "direct", "settings": {"domainStrategy": "UseIPv4"}}],
         "routing": {"rules": [{"type": "field", "inboundTag": ["api"], "outboundTag": "api"}]},
     }
     with open(CONF, "w") as f:
@@ -186,11 +190,12 @@ def loop():
     time.sleep(3)
     while True:
         try:
-            collect()
+            if current:  # آمار فقط وقتی کاربر فعالی هست خونده می‌شه (فشار کمتر)
+                collect()
             sync()
         except Exception as e:
             print("loop error:", e)
-        time.sleep(10)
+        time.sleep(15)
 
 @app.on_event("startup")
 def start():
@@ -230,16 +235,16 @@ class EditUser(BaseModel):
     addr: Optional[str] = None
     reset: bool = False
 
-def links(u, st=None):
+def links(u, st=None, addr=None, only=None, label=""):
     st = st or settings()
     dom = st["domain"] or DOMAIN
-    addr = u["addr"] or st["address"] or DEFAULT_ADDRESS or dom
+    addr = addr or u["addr"] or st["address"] or DEFAULT_ADDRESS or dom
     fp = u["fp"] or st["fp"]
     port, tls = u["port"], u["port"] != 80
-    name = st["prefix"] + u["name"]
+    name = st["prefix"] + u["name"] + label
     out = []
     for p in u["protos"].split(","):
-        if p not in PATHS:
+        if p not in PATHS or (only and p not in only):
             continue
         if p == "vmess":
             cfg = {"v": "2", "ps": f"{name} {LABEL[p]}", "add": addr, "port": str(port), "id": u["uuid"], "aid": "0",
@@ -355,6 +360,169 @@ def stats():
             "ram_used": total - mem.get("MemAvailable", total), "ram_total": total,
             "load": os.getloadavg()[0], "xray": proc is not None and proc.poll() is None}
 
+# ---------- IP scanner ----------
+CF_RANGES = ["173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18",
+             "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17",
+             "162.158.0.0/15", "104.16.0.0/13", "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22"]
+scan = {"running": False, "stop": False, "total": 0, "done": 0, "results": None}
+
+def kv_get(k, d=None):
+    r = db.execute("SELECT v FROM settings WHERE k=?", (k,)).fetchone()
+    return r["v"] if r else d
+
+def kv_set(k, v):
+    db.execute("INSERT OR REPLACE INTO settings(k,v) VALUES(?,?)", (k, v))
+    db.commit()
+
+def dns_ips(dom):
+    ips = set()
+    try:
+        ips |= {a[4][0] for a in socket.getaddrinfo(dom, 443, socket.AF_INET)}
+    except Exception:
+        pass
+    for url in (f"https://cloudflare-dns.com/dns-query?name={dom}&type=A", f"https://dns.google/resolve?name={dom}&type=A"):
+        try:
+            rq = urllib.request.Request(url, headers={"accept": "application/dns-json"})
+            d = json.load(urllib.request.urlopen(rq, timeout=5))
+            ips |= {a["data"] for a in d.get("Answer", []) if a.get("type") == 1}
+        except Exception:
+            pass
+    return ips
+
+def expand(text, per24, cap):
+    out = []
+    for tok in re.split(r"[\s,;]+", text.strip()):
+        if not tok:
+            continue
+        try:
+            if "/" not in tok:
+                out.append(str(ipaddress.ip_address(tok)))
+                continue
+            net = ipaddress.ip_network(tok, strict=False)
+            if net.version != 4:
+                continue
+            subs = [net] if net.prefixlen >= 24 else list(net.subnets(new_prefix=24))
+            if len(subs) > cap:
+                subs = random.sample(subs, cap)
+            for sn in subs:
+                n = sn.num_addresses
+                lo, hi = (1, n - 2) if n > 2 else (0, n - 1)
+                for _ in range(per24):
+                    out.append(str(sn.network_address + random.randint(lo, hi)))
+        except ValueError:
+            continue
+    out = list(dict.fromkeys(out))
+    random.shuffle(out)
+    return out[:cap]
+
+def probe(ip, dom, timeout):
+    """TLS handshake with SNI=domain, then GET /api/theme with Host=domain: valid only if OUR panel answers."""
+    t0 = time.time()
+    try:
+        raw = socket.create_connection((ip, 443), timeout=timeout)
+        conn = (time.time() - t0) * 1000
+        try:
+            c = ssl.create_default_context().wrap_socket(raw, server_hostname=dom)
+        except Exception:
+            raw.close()
+            return None
+        c.settimeout(timeout)
+        tls = (time.time() - t0) * 1000
+        c.sendall(f"GET /api/theme HTTP/1.1\r\nHost: {dom}\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n".encode())
+        data = b""
+        while len(data) < 4096:
+            chunk = c.recv(2048)
+            if not chunk:
+                break
+            data += chunk
+        c.close()
+        if b" 200" not in data[:20] or b"accent" not in data:
+            return None
+        return {"ip": ip, "conn": round(conn), "tls": round(tls), "ms": round((time.time() - t0) * 1000)}
+    except Exception:
+        return None
+
+def run_scan(p):
+    try:
+        st = settings()
+        dom = st["domain"] or DOMAIN
+        conc = max(1, min(int(p.get("conc", 20)), 60))
+        cap = max(1, min(int(p.get("max", 200)), 3000))
+        timeout = max(1, min(float(p.get("timeout", 4)), 10))
+        per24 = max(1, min(int(p.get("per24", 1)), 4))
+        dns = dns_ips(dom) if p.get("dns", True) else set()
+        others = expand(str(p.get("cidrs", "")), per24, cap)
+        if p.get("cf"):
+            others += expand("\n".join(CF_RANGES), per24, cap)
+        others = [i for i in dict.fromkeys(others) if i not in dns]
+        random.shuffle(others)
+        ips = list(dns) + others[:max(0, cap - len(dns))]
+        scan.update(total=len(ips), done=0, results=[], stop=False)
+        found = []
+        with ThreadPoolExecutor(conc) as ex:
+            futs = [ex.submit(probe, ip, dom, timeout) for ip in ips]
+            for f in as_completed(futs):
+                scan["done"] += 1
+                r = f.result()
+                if r:
+                    found.append(r)
+                    scan["results"] = sorted(found, key=lambda x: x["ms"])
+                if scan["stop"]:
+                    for g in futs:
+                        g.cancel()
+                    break
+        with L:
+            kv_set("_scan", json.dumps(sorted(found, key=lambda x: x["ms"])[:100]))
+    except Exception as e:
+        print("scan error:", e)
+    finally:
+        scan["running"] = False
+
+@app.post("/api/scan/start", dependencies=[Depends(auth)])
+def scan_start(body: dict):
+    if scan["running"]:
+        return {"ok": False}
+    scan.update(running=True, total=0, done=0, results=[], stop=False)
+    threading.Thread(target=run_scan, args=(body,), daemon=True).start()
+    return {"ok": True}
+
+@app.post("/api/scan/stop", dependencies=[Depends(auth)])
+def scan_stop():
+    scan["stop"] = True
+    return {"ok": True}
+
+@app.get("/api/scan", dependencies=[Depends(auth)])
+def scan_state():
+    res = scan["results"]
+    if res is None:
+        with L:
+            res = json.loads(kv_get("_scan", "[]"))
+    return {"running": scan["running"], "total": scan["total"], "done": scan["done"], "results": res[:100]}
+
+@app.post("/api/scan/use", dependencies=[Depends(auth)])
+def scan_use(body: dict):
+    try:
+        ip = str(ipaddress.ip_address(str(body.get("ip", ""))))
+    except ValueError:
+        raise HTTPException(400)
+    with L:
+        kv_set("address", ip)
+    return {"ok": True}
+
+@app.get("/scan/{token}")
+def scan_sub(token: str):
+    with L:
+        u = db.execute("SELECT * FROM users WHERE token=?", (token,)).fetchone()
+        res = json.loads(kv_get("_scan", "[]"))
+    if not u:
+        raise HTTPException(404)
+    st = settings()
+    have = u["protos"].split(",")
+    only = [next((p for p in ("vless", "vmess", "trojan", "vlessh") if p in have), "vmess")]
+    lines = [l for r in res[:30] for _, l in links(u, st, addr=r["ip"], only=only, label=f" · {r['ip']} · {r['ms']}ms")]
+    h = {"profile-title": "base64:" + base64.b64encode(b"Scan").decode()}
+    return Response(base64.b64encode("\n".join(lines).encode()), media_type="text/plain", headers=h)
+
 @app.get("/sub/{token}")
 def sub(token: str):
     with L:
@@ -363,7 +531,7 @@ def sub(token: str):
         raise HTTPException(404)
     st = settings()
     h = {"subscription-userinfo": f"upload={u['up']}; download={u['down']}; total={u['limit_bytes']}; expire={u['expire']}",
-         "profile-update-interval": "1",
+         "profile-update-interval": "6",
          "profile-title": "base64:" + base64.b64encode(st["title"].encode()).decode()}
     return Response(base64.b64encode("\n".join(l for _, l in links(u, st)).encode()), media_type="text/plain", headers=h)
 
