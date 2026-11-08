@@ -8,7 +8,7 @@ ADMIN_USER = (os.environ.get("ADMIN_USER") or "admin").strip()
 # رمز پنل: بهتره در Railway ← Variables با اسم ADMIN_PASSWORD بذاری؛ اگه نبود از این مقدار استفاده می‌شه
 ADMIN_PASSWORD = (os.environ.get("ADMIN_PASSWORD") or "99842222").strip()
 # >>>>>>>>>> دامنه ریلوی خودتو اینجا بذار (بدون https://) <<<<<<<<<<
-RAILWAY_DOMAIN = "YOUR-DOMAIN.up.railway.app"
+RAILWAY_DOMAIN = "confamir.up.railway.app"
 # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 DOMAIN = os.environ.get("DOMAIN") or RAILWAY_DOMAIN
 # آدرس اتصال پیش‌فرض: اگه برای کاربر یا در تنظیمات آدرسی مشخص نشده باشه، کانفیگ‌ها به این آدرس وصل می‌شن
